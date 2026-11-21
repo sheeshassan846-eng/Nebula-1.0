@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Nebula AI</title>
+  <title>Nebula AI v2.0</title>
   <style>
     * {
       box-sizing: border-box;
@@ -24,9 +24,9 @@
 
     .app-container {
       width: 100%;
-      max-width: 720px;
+      max-width: 760px;
       height: 90vh;
-      background: rgba(17, 20, 38, 0.9);
+      background: rgba(17, 20, 38, 0.92);
       border: 1px solid rgba(139, 92, 246, 0.3);
       border-radius: 16px;
       display: flex;
@@ -76,10 +76,10 @@
     }
 
     .message {
-      max-width: 80%;
+      max-width: 82%;
       padding: 12px 16px;
       border-radius: 14px;
-      line-height: 1.5;
+      line-height: 1.55;
       font-size: 0.95rem;
       white-space: pre-wrap;
       word-wrap: break-word;
@@ -98,6 +98,18 @@
       border: 1px solid rgba(148, 163, 184, 0.15);
       color: #e2e8f0;
       border-bottom-left-radius: 4px;
+    }
+
+    .source-link {
+      display: inline-block;
+      margin-top: 8px;
+      font-size: 0.82rem;
+      color: #38bdf8;
+      text-decoration: none;
+    }
+
+    .source-link:hover {
+      text-decoration: underline;
     }
 
     .input-area {
@@ -142,10 +154,10 @@
 <body>
   <div class="app-container">
     <div class="header">
-      <h1>Nebula AI</h1>
+      <h1>Nebula AI v2.0</h1>
       <div class="status">
         <span class="status-dot"></span>
-        Offline Local Engine
+        Web Search + Local Brain
       </div>
     </div>
 
@@ -155,7 +167,7 @@
       <input
         type="text"
         id="userInput"
-        placeholder="Ask Nebula anything, or type 'help'..."
+        placeholder="Ask Nebula anything (e.g., what is photosynthesis)..."
         autocomplete="off"
       />
       <button id="sendBtn">Send</button>
@@ -167,21 +179,20 @@
     const userInput = document.getElementById("userInput");
     const sendBtn = document.getElementById("sendBtn");
 
-    // Default built-in knowledge base
     const defaultIntents = [
       {
         patterns: ["hello", "hi", "hey", "good morning", "good evening", "whats up"],
         responses: [
-          "Hello! I am Nebula AI. How can I help you today?",
-          "Hey there! Nebula AI is online and ready.",
-          "Greetings! What are we building today?"
+          "Hello! I am Nebula AI. Ask me anything!",
+          "Hey there! Nebula AI v2.0 is online and ready.",
+          "Greetings! What would you like to know today?"
         ]
       },
       {
         patterns: ["who are you", "what is your name", "tell me about yourself", "what are you"],
         responses: [
-          "I am Nebula AI, a 100% offline AI running directly in your browser with no external APIs.",
-          "My name is Nebula AI. I live right here on your device and learn whatever you teach me."
+          "I am Nebula AI v2.0. I combine a local memory with live web search to answer your questions.",
+          "My name is Nebula AI. I can search the web for answers, solve math, and remember anything you teach me."
         ]
       },
       {
@@ -194,7 +205,6 @@
       }
     ];
 
-    // Load saved memory from browser storage
     function loadMemory() {
       try {
         const saved = localStorage.getItem("nebula_ai_memory");
@@ -214,7 +224,6 @@
       return text.toLowerCase().replace(/[^\w\s]/g, "").trim();
     }
 
-    // Calculate similarity between two strings (0 to 1) so typos still match
     function similarity(a, b) {
       if (a === b) return 1;
       if (!a.length || !b.length) return 0;
@@ -252,10 +261,75 @@
       return null;
     }
 
-    function getResponse(rawInput) {
+    // Extract the main topic from a natural question
+    function extractSearchQuery(rawInput) {
+      let query = rawInput.trim().replace(/[?!.]+$/g, "");
+      const prefixes = [
+        /^what is (a |an |the )?/i,
+        /^what are (the )?/i,
+        /^who is (the )?/i,
+        /^who was (the )?/i,
+        /^where is (the )?/i,
+        /^when was (the )?/i,
+        /^how does /i,
+        /^how do /i,
+        /^tell me about /i,
+        /^explain /i,
+        /^define /i,
+        /^search (for )?/i
+      ];
+
+      for (const prefix of prefixes) {
+        if (prefix.test(query)) {
+          query = query.replace(prefix, "").trim();
+          break;
+        }
+      }
+      return query || rawInput.trim();
+    }
+
+    // Free web lookup using Wikipedia's public search + summary (no API key needed)
+    async function searchWeb(rawInput) {
+      const topic = extractSearchQuery(rawInput);
+
+      try {
+        const searchUrl =
+          "https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=" +
+          encodeURIComponent(topic) +
+          "&utf8=&format=json&origin=*";
+
+        const searchRes = await fetch(searchUrl);
+        const searchData = await searchRes.json();
+
+        if (!searchData.query || !searchData.query.search.length) {
+          return null;
+        }
+
+        const bestTitle = searchData.query.search[0].title;
+        const summaryUrl =
+          "https://en.wikipedia.org/api/rest_v1/page/summary/" +
+          encodeURIComponent(bestTitle);
+
+        const summaryRes = await fetch(summaryUrl);
+        if (!summaryRes.ok) return null;
+
+        const summaryData = await summaryRes.json();
+        if (!summaryData.extract) return null;
+
+        return {
+          text: summaryData.extract,
+          sourceUrl: summaryData.content_urls?.desktop?.page || null,
+          title: summaryData.title
+        };
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function getLocalResponse(rawInput) {
       const cleaned = cleanText(rawInput);
 
-      // 1. Teaching mode: learn: question = answer
+      // 1. Teaching mode
       if (rawInput.toLowerCase().startsWith("learn:")) {
         const content = rawInput.slice(6).trim();
         const eqIndex = content.indexOf("=");
@@ -277,10 +351,11 @@
       // 2. Built-in commands
       if (cleaned === "help") {
         return (
-          "Here is what I can do offline:\n" +
+          "Here is what I can do:\n" +
+          "• Answer almost any factual question by searching the web\n" +
           "• Solve math (e.g., 45 * 12 + 8)\n" +
           "• Tell the 'time' or 'date'\n" +
-          "• Learn new things: learn: your question = my answer\n" +
+          "• Learn custom answers: learn: your question = my answer\n" +
           "• Type 'clear memory' to reset what you taught me"
         );
       }
@@ -308,7 +383,7 @@
       const mathResult = solveMath(rawInput);
       if (mathResult) return mathResult;
 
-      // 4. Fuzzy search across built-in + learned knowledge
+      // 4. Local memory + default greetings (high match threshold so real questions go to web search)
       const allIntents = [...learnedIntents, ...defaultIntents];
       let bestScore = 0;
       let bestResponses = null;
@@ -323,30 +398,62 @@
         }
       }
 
-      if (bestScore >= 0.6 && bestResponses) {
+      if (bestScore >= 0.72 && bestResponses) {
         return bestResponses[Math.floor(Math.random() * bestResponses.length)];
       }
 
-      return "I don't know how to answer that yet. Teach me by typing:\nlearn: your question = my answer";
+      return null;
     }
 
-    function addMessage(text, sender) {
+    function addMessage(text, sender, sourceUrl = null, sourceTitle = null) {
       const msgDiv = document.createElement("div");
       msgDiv.className = "message " + (sender === "user" ? "user-msg" : "bot-msg");
       msgDiv.textContent = text;
+
+      if (sourceUrl) {
+        const br = document.createElement("br");
+        const link = document.createElement("a");
+        link.href = sourceUrl;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.className = "source-link";
+        link.textContent = "Source: " + (sourceTitle || "Read more");
+        msgDiv.appendChild(br);
+        msgDiv.appendChild(link);
+      }
+
       chatBox.appendChild(msgDiv);
       chatBox.scrollTop = chatBox.scrollHeight;
+      return msgDiv;
     }
 
-    function handleSend() {
+    async function handleSend() {
       const text = userInput.value.trim();
       if (!text) return;
 
       addMessage(text, "user");
       userInput.value = "";
 
-      const reply = getResponse(text);
-      setTimeout(() => addMessage(reply, "bot"), 200);
+      // Check local brain first
+      const localReply = getLocalResponse(text);
+      if (localReply) {
+        setTimeout(() => addMessage(localReply, "bot"), 150);
+        return;
+      }
+
+      // Otherwise, search the web
+      const loadingMsg = addMessage("Searching the web...", "bot");
+      const webResult = await searchWeb(text);
+      loadingMsg.remove();
+
+      if (webResult) {
+        addMessage(webResult.text, "bot", webResult.sourceUrl, webResult.title);
+      } else {
+        addMessage(
+          "I couldn't find an answer on the web for that. You can teach me by typing:\nlearn: your question = my answer",
+          "bot"
+        );
+      }
     }
 
     sendBtn.addEventListener("click", handleSend);
@@ -354,8 +461,7 @@
       if (e.key === "Enter") handleSend();
     });
 
-    // Welcome message
-    addMessage("Nebula AI v1.0 is online. Type 'help' to see what I can do!", "bot");
+    addMessage("Nebula AI v2.0 is online! Ask me any question or type 'help'.", "bot");
   </script>
 </body>
 </html>
